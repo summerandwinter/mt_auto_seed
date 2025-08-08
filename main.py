@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import yaml
 import logging
@@ -115,7 +116,7 @@ def get_mteam_torrents(page_number=1):
         logger.error(error_msg)
         raise APIError(error_msg)
 
-def download_torrent(torrent_id):
+def download_torrent(torrent_id, state_manager):
     """下载种子文件（通过API接口）"""
     # 生成固定格式的文件名
     filename = f"mteam.{torrent_id}.torrent"
@@ -165,12 +166,20 @@ def download_torrent(torrent_id):
                 # 检查是否是请求过于频繁的错误
                 try:
                     json_response = response.json()
-                    if json_response.get("code") == 1 and "請求過於頻繁" in json_response.get("message", ""):
-                        delay = INITIAL_RETRY_DELAY * (2 ** retry_count)
-                        logger.warning(f"请求过于频繁，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})")
-                        time.sleep(delay)
-                        retry_count += 1
-                        continue
+                    if json_response.get("code") == 1:
+                        message = json_response.get("message", "")
+                        if "今日下載配額用盡" in message:
+                            logger.error(f"下载配额已用尽: {message}")
+                            state_manager.save_state()
+                            logger.info("程序结束")
+                            # 使用os._exit()强制终止进程，确保在多线程环境中能够退出
+                            os._exit(1)
+                        elif "請求過於頻繁" in message:
+                            delay = INITIAL_RETRY_DELAY * (2 ** retry_count)
+                            logger.warning(f"请求过于频繁，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})\n")
+                            time.sleep(delay)
+                            retry_count += 1
+                            continue
                 except ValueError:
                     # 不是JSON响应，说明下载成功
                     pass
@@ -179,10 +188,18 @@ def download_torrent(torrent_id):
                 break
             except requests.exceptions.HTTPError as e:
                 logger.error(f"HTTP错误: {str(e)}")
-                # 检查响应内容是否包含请求过于频繁的信息
-                if "請求過於頻繁" in response.text:
+                # 检查响应内容是否包含下载配额用尽或请求过于频繁的信息
+                response_text = response.text
+                if "今日下載配額用盡" in response_text:
+                    logger.error(f"下载配额已用尽: {response_text}")
+                    logger.info("保存最终状态...")
+                    state_manager.save_state()
+                    logger.info("程序结束")
+                    # 使用os._exit()强制终止进程，确保在多线程环境中能够退出
+                    os._exit(1)
+                elif "請求過於頻繁" in response_text:
                     delay = INITIAL_RETRY_DELAY * (2 ** retry_count)
-                    logger.warning(f"请求过于频繁，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})")
+                    logger.warning(f"请求过于频繁，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})\n")
                     time.sleep(delay)
                     retry_count += 1
                 else:
@@ -331,7 +348,7 @@ def process_single_torrent(torrent, total_downloaded, state_manager):
         return False
 
     # 下载种子文件
-    torrent_file = download_torrent(torrent['id'])
+    torrent_file = download_torrent(torrent['id'], state_manager)
 
     if torrent_file:
         # 添加到Transmission
