@@ -1,0 +1,48 @@
+# M-Team自动种子上传工具配置模板
+# 复制此文件并重命名为config.yaml，然后根据您的实际情况修改配置
+
+# M-Team配置
+mt:
+  # HTTP请求的User-Agent头
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+  # M-Team API密钥
+  api_key: "your_mteam_api_key_here"
+  # 要下载的团队ID列表
+  teams: ["44", "9", "43"]
+
+# Transmission BT客户端配置
+transmission:
+  # Transmission服务器主机地址
+  host: "localhost"
+  # Transmission服务器端口
+  port: 9091
+  # Transmission用户名
+  username: "your_transmission_username"
+  # Transmission密码
+  password: "your_transmission_password"
+  # 下载保存路径
+  save_path: "/path/to/download/folder"
+  # 种子标签
+  labels: ["MTeam官种"]
+
+# 下载参数
+download:
+  # 种子文件下载目录
+  dir: "./torrents"
+  # 请求间隔时间(秒)
+  request_interval: 10
+  # 最大下载种子数量
+  max_download_count: 1000
+  # 每页获取的种子数量
+  page_size: 100
+  # 最大重试次数
+  max_retries: 3
+  # 初始重试延迟(秒)
+  initial_retry_delay: 30
+
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # 日志文件路径
+  file: "mt_auto_seed.log"

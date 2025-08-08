@@ -1,0 +1,5 @@
+# 项目依赖
+requests>=2.31.0
+transmission-rpc>=7.0.0
+torrentool>=1.2.0
+PyYAML>=6.0.1
