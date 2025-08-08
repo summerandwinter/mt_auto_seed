@@ -39,6 +39,8 @@ download:
   max_retries: 3
   # 初始重试延迟(秒)
   initial_retry_delay: 30
+  # 线程池最大工作线程数
+  max_workers: 5
 
 # 日志配置
 logging:

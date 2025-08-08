@@ -55,6 +55,7 @@ MAX_DOWNLOAD_COUNT = CONFIG['download']['max_download_count']
 PAGE_SIZE = CONFIG['download']['page_size']
 MAX_RETRIES = CONFIG['download']['max_retries']
 INITIAL_RETRY_DELAY = CONFIG['download']['initial_retry_delay']
+MAX_WORKERS = CONFIG['download']['max_workers']
 
 def get_mteam_torrents(page_number=1):
     """获取馒头官种列表（通过API接口）"""
@@ -383,7 +384,7 @@ def main():
             logger.info(f"第 {page_number} 页找到 {len(torrents)} 个官方种子")
             
             # 批量处理种子 - 使用线程池并行处理
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 futures = []
                 for torrent in torrents:
                     if total_downloaded >= MAX_DOWNLOAD_COUNT:
