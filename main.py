@@ -383,7 +383,7 @@ def main():
             logger.info(f"第 {page_number} 页找到 {len(torrents)} 个官方种子")
             
             # 批量处理种子 - 使用线程池并行处理
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 futures = []
                 for torrent in torrents:
                     if total_downloaded >= MAX_DOWNLOAD_COUNT:
