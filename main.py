@@ -237,7 +237,7 @@ def get_torrent_hash(torrent_file):
 
 def init_transmission_client():
     """初始化Transmission客户端连接"""
-    global TR_CLIENT
+    global TR_CLIENT, TRANSMISSION_HASH_CACHE, LAST_CACHE_UPDATE
     if TR_CLIENT is None:
         try:
             logger.info(f"尝试连接到Transmission: {TR_HOST}:{TR_PORT}")
@@ -254,6 +254,30 @@ def init_transmission_client():
             raise TransmissionError(f"连接Transmission失败: {str(e)}")
     return True
 
+# 添加全局变量用于缓存种子哈希值
+TRANSMISSION_HASH_CACHE = set()
+CACHE_EXPIRY_TIME = 300  # 缓存过期时间（秒）
+LAST_CACHE_UPDATE = 0
+
+
+def update_transmission_cache():
+    """更新Transmission种子哈希缓存"""
+    global TR_CLIENT, TRANSMISSION_HASH_CACHE, LAST_CACHE_UPDATE
+    try:
+        # 确保客户端已初始化
+        if not TR_CLIENT:
+            init_transmission_client()
+
+        logger.info("更新Transmission种子哈希缓存...")
+        # 获取所有种子，然后提取哈希值
+        torrent_hashes = {torrent.hashString.lower() for torrent in TR_CLIENT.get_torrents()} 
+        TRANSMISSION_HASH_CACHE = torrent_hashes
+        LAST_CACHE_UPDATE = time.time()
+        logger.info(f"缓存更新完成，当前种子数量: {len(TRANSMISSION_HASH_CACHE)}")
+    except Exception as e:
+        logger.error(f"更新缓存失败: {str(e)}")
+
+
 def is_torrent_in_transmission(torrent_id):
     """检查种子是否已在Transmission中（通过哈希对比）"""
     global TR_CLIENT
@@ -262,8 +286,11 @@ def is_torrent_in_transmission(torrent_id):
         if not TR_CLIENT:
             init_transmission_client()
 
-        # 获取所有种子的哈希值集合
-        torrent_hashes = {torrent.hashString.lower() for torrent in TR_CLIENT.get_torrents()}
+        # 检查缓存是否过期，过期则更新
+        current_time = time.time()
+        if current_time - LAST_CACHE_UPDATE > CACHE_EXPIRY_TIME:
+            update_transmission_cache()
+        torrent_hashes = TRANSMISSION_HASH_CACHE
 
         # 构建本地种子文件路径
         torrent_file = os.path.join(DOWNLOAD_DIR, f"mteam.{torrent_id}.torrent")
@@ -288,7 +315,7 @@ def is_torrent_in_transmission(torrent_id):
 
 def add_to_transmission(torrent_file):
     """添加种子到Transmission"""
-    global TR_CLIENT
+    global TR_CLIENT, TRANSMISSION_HASH_CACHE, LAST_CACHE_UPDATE
     try:
         # 确保客户端已初始化
         if not TR_CLIENT:
@@ -320,6 +347,14 @@ def add_to_transmission(torrent_file):
                 paused=False
             )
             logger.info(f"已添加到Transmission: {torrent.name}")
+            
+            # 添加种子哈希到缓存
+            torrent_hash = torrent.hashString.lower()
+            if torrent_hash not in TRANSMISSION_HASH_CACHE:
+                TRANSMISSION_HASH_CACHE.add(torrent_hash)
+                LAST_CACHE_UPDATE = time.time()
+                logger.info(f"已将种子哈希 {torrent_hash} 添加到缓存")
+            
             return True
         except Exception as e1:
             logger.error(f"添加种子到Transmission失败: {str(e1)}")
@@ -373,6 +408,8 @@ def main():
     # 初始化Transmission客户端
     try:
         init_transmission_client()
+        # 初始化种子哈希缓存
+        update_transmission_cache()
     except TransmissionError as e:
         logger.error(f"无法连接到Transmission，程序退出: {str(e)}")
         return
