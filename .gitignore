@@ -3,8 +3,8 @@ torrents/
 
 # 添加其他需要忽略的文件或文件夹
 config.yaml
-state.json
-mt_auto_seed.log
+*.json
+*.log
 
 __pycache__/
 *.pyc
