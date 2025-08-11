@@ -42,6 +42,7 @@ TR_CLIENT = None
 MT_USER_AGENT = CONFIG['mt']['user_agent']
 MT_API_KEY = CONFIG['mt']['api_key']
 TEAMS = CONFIG['mt']['teams']
+CATEGORIES = CONFIG['mt']['categories']
 
 TR_HOST = CONFIG['transmission']['host']
 TR_PORT = CONFIG['transmission']['port']
@@ -57,6 +58,8 @@ PAGE_SIZE = CONFIG['download']['page_size']
 MAX_RETRIES = CONFIG['download']['max_retries']
 INITIAL_RETRY_DELAY = CONFIG['download']['initial_retry_delay']
 MAX_WORKERS = CONFIG['download']['max_workers']
+MAX_SIZE = CONFIG['download']['max_size']
+MIN_SIZE = CONFIG['download']['min_size']
 
 def get_mteam_torrents(page_number=1):
     """获取馒头官种列表（通过API接口）"""
@@ -71,7 +74,7 @@ def get_mteam_torrents(page_number=1):
     payload = {
         "mode": "normal",
         "visible": 1,
-        "categories": [],
+        "categories": CATEGORIES,
         "teams": TEAMS,
         "sortDirection": "ASC",
         "sortField": "SIZE",
@@ -95,12 +98,22 @@ def get_mteam_torrents(page_number=1):
         torrents = []
         # 提取种子信息
         for item in data.get("data", {}).get("data", []):
+            id = item.get("id")
+            title = item.get("name")
+            size = item.get("size")
+            seeders = item.get("status").get("seeders")
+            if int(size) < int(MIN_SIZE) or int(size) > int(MAX_SIZE):
+                logger.debug(f"种子 {title} 大小 {size} 不在指定范围内，跳过")
+                continue
+            if int(seeders) < 10:
+                logger.debug(f"种子 {title} 做种数 {seeders} 不足，跳过")
+                continue
             torrents.append({
-                "id": item.get("id"),
-                "title": item.get("name")
+                "id": id,
+                "title": title
             })
         
-        logger.info(f"通过API获取到 {len(torrents)} 个种子")
+        logger.info(f"通过API获取到 {len(torrents)} 个匹配的种子")
         return torrents
     
     except requests.exceptions.RequestException as e:
@@ -134,27 +147,50 @@ def download_torrent(torrent_id, state_manager):
         "User-Agent": MT_USER_AGENT
     }
     
-    try:
-        # 请求下载token
-        logger.info(f"正在请求种子 {torrent_id} 的下载token")
-        token_response = requests.post(token_url, headers=headers, timeout=30)
-        token_response.raise_for_status()
-        
-        token_data = token_response.json()
-        
-        # 检查响应是否成功
-        if token_data.get("code") != "0":
-            error_msg = f"获取下载token失败: {token_data.get('message', '未知错误')}"
-            logger.error(error_msg)
-            raise APIError(error_msg)
-        
-        # 获取下载链接
-        download_url = token_data.get("data")
-        if not download_url:
-            error_msg = "未获取到有效的下载链接"
-            logger.error(error_msg)
-            raise APIError(error_msg)
-        
+    # 请求下载token，处理请求过于频繁的情况
+    logger.info(f"正在请求种子 {torrent_id} 的下载token")
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            token_response = requests.post(token_url, headers=headers, timeout=30)
+            token_response.raise_for_status()
+            
+            token_data = token_response.json()
+            
+            # 检查响应是否成功
+            if token_data.get("code") != "0":
+                error_msg = token_data.get('message', '未知错误')
+                if "請求過於頻繁" in error_msg:
+                    delay = INITIAL_RETRY_DELAY * (2 ** retry_count)
+                    logger.warning(f"获取token请求过于频繁，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})")
+                    time.sleep(delay)
+                    retry_count += 1
+                    continue
+                else:
+                    error_msg = f"获取下载token失败: {error_msg}"
+                    logger.error(error_msg)
+                    raise APIError(error_msg)
+            
+            break  # 成功获取token，退出循环
+        except requests.exceptions.RequestException as e:
+            # 处理网络异常
+            delay = INITIAL_RETRY_DELAY * (2 ** retry_count)
+            logger.warning(f"获取token请求失败: {str(e)}，{delay}秒后重试... (重试次数: {retry_count+1}/{MAX_RETRIES})")
+            time.sleep(delay)
+            retry_count += 1
+    else:
+        # 达到最大重试次数
+        error_msg = f"获取下载token失败: 达到最大重试次数 {MAX_RETRIES}"
+        logger.error(error_msg)
+        raise APIError(error_msg)
+    
+    # 获取下载链接
+    download_url = token_data.get("data")
+    if not download_url:
+        error_msg = "未获取到有效的下载链接"
+        logger.error(error_msg)
+        raise APIError(error_msg)
+    try:  
         # 下载种子文件，处理请求过于频繁的情况
         logger.info(f"正在下载种子文件: {filename}")
         retry_count = 0
@@ -432,10 +468,17 @@ def main():
                 continue
             
             if not torrents:
-                logger.info("未找到官方种子或已到达最后一页")
-                break
+                logger.info(f"第 {page_number} 页未找到找到匹配的种子，自动开始搜索下一页")
+                # 更新最后处理的页码
+                state_manager.update_last_page(page_number)
+                # 保存状态
+                state_manager.save_state()
             
-            logger.info(f"第 {page_number} 页找到 {len(torrents)} 个官方种子")
+                # 进入下一页
+                page_number += 1
+                continue
+            
+            logger.info(f"第 {page_number} 页找到 {len(torrents)} 个匹配的种子")
             
             # 批量处理种子 - 使用线程池并行处理
             with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
